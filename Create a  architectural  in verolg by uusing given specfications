@@ -1,0 +1,110 @@
+module SimpleCPU (
+    input clk,
+    input reset,
+    output reg [31:0] pc
+);
+
+    // Instruction Memory
+    reg [31:0] imem [0:255];
+
+    // Data Memory
+    reg [31:0] dmem [0:255];
+
+    // Register File
+    reg [31:0] regfile [0:31];
+
+    // Instruction Fields
+    reg [31:0] instr;
+    reg [5:0] opcode;
+    reg [4:0] rs, rt, rd;
+    reg [15:0] imm;
+    reg [25:0] addr;
+
+    // ALU Signals
+    reg [31:0] alu_a, alu_b, alu_out;
+    reg [3:0] alu_ctrl;
+
+    // Pipeline Stages
+    reg [31:0] if_id_instr, id_ex_instr;
+    reg [31:0] id_ex_a, id_ex_b, id_ex_imm;
+    reg [4:0] id_ex_rd;
+
+    // Control Signals
+    reg mem_read, mem_write, reg_write;
+    reg [1:0] wb_src;
+
+    // Instruction Fetch Stage
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            pc <= 0;
+        else
+            pc <= pc + 4;
+    end
+
+    always @(posedge clk) begin
+        if_id_instr <= imem[pc >> 2];
+    end
+
+    // Instruction Decode Stage
+    always @(posedge clk) begin
+        instr <= if_id_instr;
+        opcode <= instr[31:26];
+        rs <= instr[25:21];
+        rt <= instr[20:16];
+        rd <= instr[15:11];
+        imm <= instr[15:0];
+        addr <= instr[25:0];
+
+        id_ex_a <= regfile[rs];
+        id_ex_b <= regfile[rt];
+        id_ex_rd <= rd;
+        id_ex_imm <= imm;
+        id_ex_instr <= instr;
+    end
+
+    // Execute Stage
+    always @(*) begin
+        case (opcode)
+            6'b000000: // R-type
+                case (instr[5:0])
+                    6'b100000: alu_ctrl <= 4'b0010; // ADD
+                    6'b100010: alu_ctrl <= 4'b0110; // SUB
+                    6'b011000: alu_ctrl <= 4'b1000; // MUL
+                    6'b011010: alu_ctrl <= 4'b1001; // DIV
+                    6'b001100: alu_ctrl <= 4'b1010; // AND
+                    6'b001101: alu_ctrl <= 4'b1011; // OR
+                    6'b001110: alu_ctrl <= 4'b1100; // XOR
+                    6'b001111: alu_ctrl <= 4'b1101; // NOT
+                    default: alu_ctrl <= 4'b0000;
+                endcase
+            default: alu_ctrl <= 4'b0000;
+        endcase
+
+        case (alu_ctrl)
+            4'b0010: alu_out <= id_ex_a + id_ex_b; // ADD
+            4'b0110: alu_out <= id_ex_a - id_ex_b; // SUB
+            4'b1000: alu_out <= id_ex_a * id_ex_b; // MUL
+            4'b1001: alu_out <= id_ex_a / id_ex_b; // DIV
+            4'b1010: alu_out <= id_ex_a & id_ex_b; // AND
+            4'b1011: alu_out <= id_ex_a | id_ex_b; // OR
+            4'b1100: alu_out <= id_ex_a ^ id_ex_b; // XOR
+            4'b1101: alu_out <= ~id_ex_a; // NOT
+            default: alu_out <= 0;
+        endcase
+    end
+
+    // Memory Access Stage
+    always @(posedge clk) begin
+        if (mem_read)
+            regfile[id_ex_rd] <= dmem[alu_out];
+        if (mem_write)
+            dmem[alu_out] <= id_ex_b;
+    end
+
+    // Write-Back Stage
+    always @(posedge clk) begin
+        if (reg_write)
+            regfile[id_ex_rd] <= alu_out;
+    end
+
+endmodule
